@@ -5,7 +5,8 @@
 enum task_state{
     FAILURE = -1,
     SUCCESS,
-    NOT_PROCESSED
+    NOT_PROCESSED,
+    PROCESSING,
 };
 
 const int BUFFER_SIZE = 10; 
@@ -27,7 +28,7 @@ struct SharedData{
     SharedNode buffer[BUFFER_SIZE];
     int read_idx=0; // points to node available to read
     int write_idx=0; // points to available slot to write on
-    sem_t mutex;
+    // sem_t mutex;
     sem_t filled_slots; 
     sem_t empty_slots; 
 };

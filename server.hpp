@@ -11,6 +11,7 @@
 #include <semaphore.h>
 #include <cassert>
 #include <pthread.h>
+#include <cmath>
 
 #include "shared.hpp"
 
@@ -26,7 +27,7 @@ private:
     int hash(int key)
     {
         // TODO : improve the hash function
-        return key % buckets_size;
+        return (key + key % buckets_size)% buckets_size;
     }
 
 public:
@@ -37,7 +38,6 @@ public:
         // this->locks.resize(buckets);
         vector<mutex> locks(buckets);
         this->locks.swap(locks);
-
     }
 
     bool insert(int key, int value)
@@ -52,12 +52,14 @@ public:
                 return false;
             }
         }
+        cout << "\t[db] Inserting " << key << " into bucket:" << hash(key) << endl;
         bucket.push_back({key, value});
         return true;
     }
 
     bool find(int key, int &value)
     {
+
         lock_guard<mutex> lock(locks[hash(key)]);
         auto &bucket = buckets_list[hash(key)];
         for (const auto &pair : bucket)
@@ -65,6 +67,7 @@ public:
             if (pair.first == key)
             {
                 value = pair.second;
+                cout << "\t[db] Found " << key << " in bucket:" << hash(key) << endl;
                 return true;
             }
         }
@@ -73,6 +76,7 @@ public:
 
     bool remove(int key)
     {
+
         lock_guard<mutex> lock(locks[hash(key)]);
         auto &bucket = buckets_list[hash(key)];
         auto it = bucket.begin();
@@ -80,6 +84,7 @@ public:
         {
             if (it->first == key)
             {
+                cout << "\t[db] Deleting " << key << " from bucket:" << hash(key) << endl;
                 bucket.erase(it);
                 return true;
             }
@@ -92,5 +97,6 @@ public:
 
 struct ThreadArgs{
     Map *db;
-    SharedNode *data;
+    // SharedNode *node;
+    SharedData *shared_data;
 };

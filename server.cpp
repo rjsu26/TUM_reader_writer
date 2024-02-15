@@ -1,7 +1,15 @@
+#include <csignal>
 #include "server.hpp"
 
-
 using namespace std;
+
+bool prog_terminate = false;
+
+void signalHandler(int signal)
+{
+    cout << "Terminating.." << endl;
+    exit(-5);
+}
 
 /* Function called in a new thread to execute db operations like insert, find
   @input : void pointer to database object
@@ -9,110 +17,141 @@ using namespace std;
  */
 void *database_operations(void *arg)
 {
-    ThreadArgs *args = reinterpret_cast<ThreadArgs*>(arg);
+    ThreadArgs *args = reinterpret_cast<ThreadArgs *>(arg);
     Map *db = args->db;
-    SharedNode *data = args->data;
-
-    if (strncmp(data->message, "insert", 20) == 0)
+    SharedData *shared_data = args->shared_data;
+    SharedNode *node = &shared_data->buffer[shared_data->read_idx % BUFFER_SIZE];
+    int current_read_idx = shared_data->read_idx; 
+    shared_data->read_idx = (shared_data->read_idx + 1) ;
+    // cout<<__LINE__<<endl;
+    if (node->processed == NOT_PROCESSED) // state changed by either of the if conditions below
     {
-        if (data->insert_key == INT32_MIN || data->insert_val == INT32_MIN)
-        {
-            data->processed = FAILURE; // this ops failed
-            // set error message
-            strncpy(data->message, "Key|Value not given", 20);
+        // cout<<__LINE__<<endl;
+        node->processed = PROCESSING; 
 
-            // TODO : log the invalid operation somewhere
-        }
-        else
+        if (strncmp(node->message, "insert", 20) == 0)
         {
-            bool status = db->insert(data->insert_key, data->insert_val);
-            if (!status)
+            if (node->insert_key == INT32_MIN || node->insert_val == INT32_MIN)
             {
-                data->processed = FAILURE;
+                node->processed = FAILURE; // this ops failed
                 // set error message
-                strncpy(data->message, "Key already present", 20);
+                strncpy(node->message, "Key|Value not given", 20);
+                cout<<"\tKey|Value not given"<<endl;
+                // TODO : log the invalid operation somewhere
             }
             else
             {
-                data->processed = SUCCESS;
-                cout << "Processed insert" << endl;
+                cout << "Executing insert "
+                     << " idx : " << current_read_idx
+                     << " key : " << node->insert_key << endl;
+                bool status = db->insert(node->insert_key, node->insert_val);
+                if (!status)
+                {
+                    node->processed = FAILURE;
+                    // set error message
+                    strncpy(node->message, "Key already present", 20);
+                      cout<<"\tKey already present"<<endl;
+              
+                }
+                else
+                {
+                    node->processed = SUCCESS;
+                }
             }
-        }
 
-        // reset key and value to INT_MIN for preventing garbage read
-        data->insert_key = INT32_MIN;
-        data->insert_val = INT32_MIN;
-    }
-    else if (strncmp(data->message, "read", 20) == 0)
-    {
-        if (data->read_key == INT32_MIN)
-        {
-            data->processed = FAILURE; // this ops failed
-            // set error message
-            strncpy(data->message, "Read key not given", 20);
-            // TODO : log the invalid operation somewhere
+            // reset key and value to INT_MIN for preventing garbage read
+            node->insert_key = INT32_MIN;
+            node->insert_val = INT32_MIN;
         }
-        else
+        else if (strncmp(node->message, "read", 20) == 0)
         {
-            bool status = db->find(data->read_key, data->read_val);
-            if (!status)
+            if (node->read_key == INT32_MIN)
             {
-                data->processed = FAILURE;
+                node->processed = FAILURE; // this ops failed
                 // set error message
-                strncpy(data->message, "No such key found", 20);
+                strncpy(node->message, "Read key not given", 20);
+                cout<<"\tRead key not given"<<endl;
+                // TODO : log the invalid operation somewhere
             }
             else
             {
-                data->processed = SUCCESS;
-                cout << "Processed find" << endl;
-            }
-        }
+                cout << "Executing read "
+                     << " idx : " << current_read_idx
+                     << " key : " << node->read_key << endl;
 
-        // reset key to INT_MIN for preventing garbage read
-        data->read_key = INT32_MIN;
-    }
-    else if (strncmp(data->message, "delete", 20) == 0)
-    {
-        if (data->delete_key == INT32_MIN)
-        {
-            data->processed = FAILURE; // this ops failed
-            // set error message
-            strncpy(data->message, "key not given", 20);
-            // TODO : log the invalid operation somewhere
+                bool status = db->find(node->read_key, node->read_val);
+                if (!status)
+                {
+                    node->processed = FAILURE;
+                    // set error message
+                    strncpy(node->message, "No such key found", 20);
+                    cout<<"\tNo such key found"<<endl;
+                
+                }
+                else
+                {
+                    node->processed = SUCCESS;
+                }
+            }
+
+            // reset key to INT_MIN for preventing garbage read
+            node->read_key = INT32_MIN;
         }
-        else
+        else if (strncmp(node->message, "delete", 20) == 0)
         {
-            bool status = db->remove(data->delete_key);
-            if (!status)
+            if (node->delete_key == INT32_MIN)
             {
-                data->processed = FAILURE;
+                node->processed = FAILURE; // this ops failed
                 // set error message
-                strncpy(data->message, "No such key found", 20);
+                strncpy(node->message, "key not given", 20);
+                cout<<"\tkey not given"<<endl;
+
+                // TODO : log the invalid operation somewhere
             }
             else
             {
-                data->processed = SUCCESS;
-                cout << "Processed delete" << endl;
-            }
-        }
-        // reset key to INT_MIN for preventing garbage read
-        data->delete_key = INT32_MIN;
-    }
-    else // unrecognized command
-    {
-        strncpy(data->message, "Unrecognized !", 20);
-        data->processed = FAILURE;
-    }
+                cout << "Executing remove "
+                     << " idx : " << current_read_idx
+                     << " key : " << node->delete_key << endl;
 
-    return NULL; 
+                bool status = db->remove(node->delete_key);
+                if (!status)
+                {
+                    node->processed = FAILURE;
+                    // set error message
+                    strncpy(node->message, "No such key found", 20);
+                     cout<<"\tNo such key found"<<endl;
+                
+                }
+                else
+                {
+                    node->processed = SUCCESS;
+                }
+            }
+            // reset key to INT_MIN for preventing garbage read
+            node->delete_key = INT32_MIN;
+        }
+        else // unrecognized command
+        {
+            strncpy(node->message, "Unrecognized !", 20);
+            node->processed = FAILURE;
+        }
+    }
+    // cout<<__LINE__<<endl;
+
+    sem_post(&shared_data->empty_slots);
+    return NULL;
 }
 
 int main(int argc, char *argv[])
 {
+    // Register the signal handler for Ctrl+C
+    signal(SIGINT, signalHandler);
+
     cout << "Starting the server...." << endl;
 
     // Create a POSIX shared memory object
-    int shm_fd = shm_open("/shared_memory", O_CREAT | O_RDWR, 0666);
+    int shm_fd = shm_open("/shared_memory", O_CREAT | O_RDWR | O_TRUNC, 0666);
     if (shm_fd == -1)
     {
         cerr << "Error creating shared memory segment" << endl;
@@ -131,7 +170,7 @@ int main(int argc, char *argv[])
     }
 
     /* Initialize the semaphores */
-    assert(sem_init(&shared_data->mutex, 1, 1) == 0);
+    // assert(sem_init(&shared_data->mutex, 1, 1) == 0);
     assert(sem_init(&shared_data->empty_slots, 1, BUFFER_SIZE) == 0);
     assert(sem_init(&shared_data->filled_slots, 1, 0) == 0);
 
@@ -152,43 +191,37 @@ int main(int argc, char *argv[])
     // Write data to the shared memory segment
 
     cout << "Taking requests from client...." << endl;
+    cout << "-------------------------------"<<endl;
 
     while (true)
     {
         sem_wait(&shared_data->filled_slots);
-        sem_wait(&shared_data->mutex); // Wait for access to shared memory
+        // sem_wait(&shared_data->mutex); // Wait for access to shared memory
+        ThreadArgs args{
+            .db = &db,
+            // .node = node,
+            .shared_data = shared_data};
 
-        SharedNode *data = &shared_data->buffer[shared_data->read_idx];
-        shared_data->read_idx = (shared_data->read_idx + 1) % BUFFER_SIZE;
-        cout << "Executing " << data->message << " idx : " << (shared_data->read_idx - 1) % BUFFER_SIZE << endl;
-        if (data->processed == NOT_PROCESSED) // state changed by either of the if conditions below
+        // Create thread
+        pthread_t thread;
+        if (pthread_create(&thread, nullptr, database_operations, &args) != 0)
         {
-            ThreadArgs args{
-                .db = &db,
-                .data = data};
-
-            // Create thread
-            pthread_t thread;
-            if (pthread_create(&thread, nullptr, database_operations, &args) != 0)
-            {
-                std::cerr << "Error creating thread" << std::endl;
-                return 1;
-            }
-
-            // Wait for thread to finish
-            if (pthread_join(thread, nullptr) != 0)
-            {
-                std::cerr << "Error joining thread" << std::endl;
-                return 1;
-            }
+            std::cerr << "Error creating thread" << std::endl;
+            return -4;
         }
-        sem_post(&shared_data->mutex); // Release access to shared memory
-        sem_post(&shared_data->empty_slots);
+
+        // Detach thread1
+        if (pthread_detach(thread) != 0)
+        {
+            std::cerr << "Error detaching thread" << std::endl;
+            return -5;
+        }
+        // sem_post(&shared_data->mutex); // Release access to shared memory
 
         // sleep(1);
     }
 
-    sem_destroy(&shared_data->mutex);
+    // sem_destroy(&shared_data->mutex);
     sem_destroy(&shared_data->empty_slots);
     sem_destroy(&shared_data->filled_slots);
 

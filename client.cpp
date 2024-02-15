@@ -17,6 +17,8 @@
 
 using namespace std;
 
+#define max_keys 10
+
 bool prog_terminate = false;
 
 void signalHandler(int signal)
@@ -52,41 +54,56 @@ int main()
     while (!prog_terminate)
     {
         sem_wait(&shared_data->empty_slots);
-        sem_wait(&shared_data->mutex);
+        // sem_wait(&shared_data->mutex);
 
         // generating random ops
         int ops_idx = rand() % 3;
-        SharedNode *data = &shared_data->buffer[shared_data->write_idx];
-        shared_data->write_idx = (shared_data->write_idx + 1) % BUFFER_SIZE;
+        SharedNode *data = &shared_data->buffer[shared_data->write_idx % BUFFER_SIZE];
         strncpy(data->message, ops[ops_idx].c_str(), 20);
+
+        while(data->processed == PROCESSING)
+            usleep(100000);
 
         // prepare packet
         if (ops[ops_idx] == "insert")
         {
             // initialize the insert keys and values
-            data->insert_key = rand() % INT16_MAX;
-            data->insert_val = rand() % INT16_MAX;
+            data->insert_key = rand() % max_keys;
+            data->insert_val = rand() % max_keys;
+            cout << "Submitting insert"
+                 << " idx : " << shared_data->write_idx 
+                 << " key: " << data->insert_key
+                 << " val : " << data->insert_val << endl;
         }
         else if (ops[ops_idx] == "read")
         {
-            data->read_key = rand() % INT16_MAX;
+            data->read_key = rand() % max_keys;
+            cout << "Submitting read"
+                 << " idx : " << shared_data->write_idx 
+                 << " key: " << data->read_key << endl;
         }
         else
         {
-            data->delete_key = rand() % INT16_MAX;
+            data->delete_key = rand() % max_keys;
+            cout << "Submitting delete"
+                 << " idx : " << shared_data->write_idx 
+                 << " key: " << data->delete_key << endl;
         }
-        cout << "Submitted " << ops[ops_idx]<<" idx : "<< (shared_data->write_idx - 1) % BUFFER_SIZE<< endl;
-        sem_post(&shared_data->mutex);
+
+        data->processed = NOT_PROCESSED;
+
+        shared_data->write_idx = (shared_data->write_idx + 1) ;
+        // sem_post(&shared_data->mutex);
         sem_post(&shared_data->filled_slots);
 
         // usleep(200000);
     }
 
-    // Unmap and close the shared memory segment
+    // Unmap the shared memory segment
     munmap(shared_data, sizeof(SharedData));
-    shm_unlink("/shared_memory");
+    // shm_unlink("/shared_memory");
     close(shm_fd);
-    cout<<"All resources cleaned up!"<<endl;
+    cout << "All resources cleaned up!" << endl;
 
     return 0;
 }
